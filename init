@@ -1,0 +1,117 @@
+#!/bin/bash
+set -e
+
+# function err {
+#   retval="${?:-9}"
+#   /bin/exit_qemu_with_status "${retval}"
+# }
+
+# trap err EXIT
+# trap err ERR
+
+function mount_cgroupv1() {
+  mkdir -p /sys/fs/cgroup
+  mount -t tmpfs tmpfs /sys/fs/cgroup
+  paths=(
+    "blkio"
+    "cpu,cpuacct"
+    "devices"
+    "memory"
+    "pids"
+    "cpuset"
+    "freezer"
+    "perf_event"
+    "rdma"
+  )
+  for p in "${paths[@]}"; do
+    mkdir -p "/sys/fs/cgroup/$p"
+    mount -t cgroup cgroup -o "$p" "/sys/fs/cgroup/$p"
+  done
+}
+
+function mount_cgroupv2() {
+  mkdir -p /sys/fs/cgroup
+  mount -t cgroup2 cgroup2 /sys/fs/cgroup
+}
+
+function mount_cgroup() {
+  kernel_major_version="$(uname -r | cut -d'.' -f1)"
+  kernel_minor_version="$(uname -r | cut -d'.' -f2)"
+  # If the kernel version is below 5.2, then use cgroupv1.
+  if [[ "${kernel_major_version}" -le "4" ]] || ([[ "${kernel_major_version}" -eq "5" ]] && [[ "${kernel_minor_version}" -lt "2" ]]); then
+    echo "Using cgroup v1"
+    mount_cgroupv1
+  else
+    echo "Using cgroup v2"
+    mount_cgroupv2
+  fi
+}
+
+function mount_system_dirs() {
+  mount -t sysfs none /sys
+  mount -t debugfs none /sys/kernel/debug
+  mount -t bpf none /sys/fs/bpf
+  mount -t tracefs none /sys/kernel/tracing
+  mount -t tmpfs tmpfs /run
+
+  mkdir -p /dev/shm
+  mount -t tmpfs tmpfs /dev/shm
+
+  mkdir -p /dev/pts
+  mount -t devpts devpts /dev/pts
+}
+
+function mount_test_fs() {
+  # Mount the test filesystem.
+  mkdir -p /test_fs
+  mount -t 9p -o trans=virtio test_fs /test_fs || true
+}
+
+function setup_eth0() {
+  ip link set dev eth0 up
+  ifconfig eth0 10.0.2.15 netmask 255.255.255.0
+  route add default gw 10.0.2.2
+}
+
+function setup_networking() {
+  ip link set dev lo up
+
+  if [[ -f "/etc/hostname" ]]; then
+    hostname -F /etc/hostname
+  fi
+
+  if [[ ! -f /etc/hosts ]]; then
+    cat <<EOF >/etc/hosts
+127.0.0.1 localhost
+EOF
+  fi
+  setup_eth0
+}
+
+echo "STARTING INIT QEMU BPF"
+
+# We need proc mounted, otherwise the future mounts commands will fail.
+mount -t proc none /proc
+
+# Remount the root filesystem, since it starts out read-only.
+mount -o rw,remount /
+
+mount_system_dirs
+mount_cgroup
+mount_test_fs
+setup_networking
+
+cat <<EOF
+
+Boot took $(cut -d' ' -f1 /proc/uptime) seconds
+
+Welcome to QEMU BPF
+
+EOF
+
+run_sshd="/test_fs/run_sshd.sh"
+if [[ -x "${run_sshd}" ]]; then
+  exec /bin/bash -c "${run_sshd}"
+else
+  echo "WARN: Not executable ${run_sshd}"
+fi

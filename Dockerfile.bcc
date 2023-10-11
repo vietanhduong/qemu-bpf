@@ -1,0 +1,53 @@
+FROM debian:bookworm-20230919 as bcc-builder
+
+RUN echo "deb http://deb.debian.org/debian bookworm main contrib non-free" >> /etc/apt/sources.list
+RUN echo "deb-src http://deb.debian.org/debian bookworm main contrib non-free" >> /etc/apt/sources.list
+
+ENV DEBIAN_FRONTEND=noninteractive 
+RUN apt-get update && \
+  apt-get install -y arping bison clang-format cmake git dh-python \
+  dpkg-dev pkg-kde-tools ethtool flex inetutils-ping iperf \
+  libbpf-dev libclang-dev libclang-cpp-dev libedit-dev libelf-dev \
+  libpolly-14-dev libfl-dev libzip-dev linux-libc-dev llvm-dev \
+  python3-netaddr python3-pyroute2 python3-setuptools python3
+
+WORKDIR /bcc
+
+ARG BCC_REF=ec49363e2e9daec026ee6cae4c5fc316f8fab0ff
+
+RUN git clone https://github.com/iovisor/bcc.git . && \
+  git checkout ${BCC_REF}
+
+WORKDIR /bcc/build
+
+RUN cmake .. \
+  -DENABLE_EXAMPLES=OFF \
+  -DENABLE_MAN=OFF \
+  -DENABLE_TESTS=OFF \
+  # Consider to increase number of process (-j). 
+  # In some case, this can lets the process stuck forever.
+  && make \
+  && make install
+
+FROM debian:bookworm-20230919 
+
+LABEL org.opencontainers.image.source=https://github.com/vietanhduong/qemu-bpf
+
+ENV DEBIAN_FRONTEND="noninteractive"
+RUN  apt-get update \
+  && apt-get install --no-install-recommends -y \
+  # required for bcc (libelf.so)
+  libelf1 \
+  ca-certificates \
+  && apt-get -y autoremove \
+  && update-ca-certificates \
+  && apt-get clean -y \
+  && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
+  && ln -sf /usr/include/asm-generic /usr/include/asm
+
+COPY --from=bcc-builder /usr/include/bcc /usr/include/bcc
+COPY --from=bcc-builder /usr/lib/x86_64-linux-gnu/libbcc* /usr/lib/x86_64-linux-gnu
+COPY --from=bcc-builder /usr/lib/x86_64-linux-gnu/pkgconfig/libbcc.pc /usr/lib/x86_64-linux-gnu/pkgconfig/libbcc.pc
+
+
+
