@@ -75,20 +75,37 @@ function setup_eth0() {
 
 function setup_networking() {
   ip link set dev lo up
-
+  # Setup Hostname
   if [[ -f "/etc/hostname" ]]; then
     hostname -F /etc/hostname
   fi
-
+  # Setup Hosts
   if [[ ! -f /etc/hosts ]]; then
-    cat <<EOF >/etc/hosts
-127.0.0.1 localhost
-EOF
+    echo -en "127.0.0.1\tlocalhost\n" | tee /etc/hosts
   fi
+  # Setup eth0
   setup_eth0
+  # Setup resolver
+  echo "nameserver 8.8.8.8" | tee -a /etc/resolv.conf
 }
 
-echo "STARTING INIT QEMU BPF"
+function setup_profile() {
+  cat <<EOF >/root/.bash_profile
+PS1='[\u@\h \W]# '
+if [[ -d /usr/go/bin ]]; then
+  export PATH=$PATH:/usr/go/bin
+fi
+if [[ -f /usr/bin/vim.tiny ]]; then 
+  alias vim=/usr/bin/vim.tiny
+fi
+alias ll="ls -lah"
+EOF
+}
+
+function setup_lastlog() {
+  touch /var/log/lastlog
+  chmod 664 /var/log/lastlog
+}
 
 # We need proc mounted, otherwise the future mounts commands will fail.
 mount -t proc none /proc
@@ -100,6 +117,8 @@ mount_system_dirs
 mount_cgroup
 mount_test_fs
 setup_networking
+setup_profile
+setup_lastlog
 
 cat <<EOF
 

@@ -50,6 +50,8 @@ ARCHIVES=${DIR}/var/cache/apt/archives
 OUTPUT_TAR_PATH="/builds/sysroot-$ARCH.tar.gz"
 
 EXCLUDE_PATHS=${EXCLUDE_PATHS:-"usr/share/,usr/lib/llvm-15/build"}
+INSTALL_BCC=${INSTALL_BCC:-true}
+INSTALL_GO=${INSTALL_GO:-true}
 
 declare -A paths_to_exclude
 IFS=', ' read -r -a exclude_arr <<<"$EXCLUDE_PATHS"
@@ -99,6 +101,17 @@ INCLUDE_PKGS=(
   git
   vim
 )
+
+echo "Settings:"
+echo "  Arch: $ARCH"
+echo "  Debian Release: $RELEASE"
+echo "  Install BCC: $INSTALL_BCC"
+echo "  Install Go: $INSTALL_GO"
+echo "  Output: $OUTPUT_TAR_PATH"
+
+if [[ $INSTALL_GO = true ]]; then
+  INCLUDE_PKGS+=(gcc g++ build-essential)
+fi
 
 EXCLUDE_PKGS=(
   dpkg
@@ -155,6 +168,7 @@ install_bcc() {
 }
 
 install_go() {
+  echo "Installing Golang..."
   root_dir="$1"
   curl -sSLo go.tar.gz https://go.dev/dl/go1.21.3.linux-amd64.tar.gz &&
     tar -xf go.tar.gz -C $(realpath $root_dir)/usr && rm -f go.tar.gz
@@ -169,8 +183,13 @@ inside_tmpdir() {
 
   create_root_cert "${root_dir}"
 
-  install_bcc "${root_dir}"
-  install_go "${root_dir}"
+  if [[ $INSTALL_BCC = true ]]; then
+    install_bcc "${root_dir}"
+  fi
+
+  if [[ $INSTALL_GO = true ]]; then
+    install_go "${root_dir}"
+  fi
 
   for dir in "${!extra_dirs[@]}"; do
     mkdir -p "${root_dir}/${dir}"

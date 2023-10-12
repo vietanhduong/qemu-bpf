@@ -23,24 +23,29 @@ OUTPUT_DISK="${BUILDS_DIR}/${OUTPUT_NAME}.qcow2"
 KERNEL_PACKAGE="${BUILDS_DIR}/linux-build.tar.gz"
 BUSYBOX="${BUILDS_DIR}/busybox"
 
+INSTALL_GO=${INSTALL_GO:-true}
+INSTALL_BCC=${INSTALL_BCC:-true}
+
 FS_TYPE=ext4
 DISK_SIZE="4096M"
 
 # Download the kernel package from kernel-builder repo
-# curl -s https://api.github.com/repos/vietanhduong/kernel-builder/releases/latest |
-#   grep "browser_download_url.*.tar.gz" |
-#   grep "${KERNEL_VERSION}" |
-#   cut -d : -f 2,3 |
-#   tr -d \" |
-#   xargs -n1 curl -sSLo $KERNEL_PACKAGE
+curl -s https://api.github.com/repos/vietanhduong/kernel-builder/releases/latest |
+  grep "browser_download_url.*.tar.gz" |
+  grep "${KERNEL_VERSION}" |
+  cut -d : -f 2,3 |
+  tr -d \" |
+  xargs -n1 curl -sSLo $KERNEL_PACKAGE
 
 # Download busybox
-# curl -sSLo $BUSYBOX https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox
+curl -sSLo $BUSYBOX https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox
 
-# mkdir -p $BUILDS_DIR &&
-#   sudo rm -f "${SYSROOT}"
+mkdir -p $BUILDS_DIR &&
+  sudo rm -f "${SYSROOT}"
 
 docker run --rm -v $BUILDS_DIR:/builds -v ./build-sysroot.sh:/scripts/build-sysroot.sh \
+  -e INSTALL_GO=${INSTALL_GO} \
+  -e INSTALL_BCC=${INSTALL_BCC} \
   $DOCKER_BASE_IMAGE -a "$ARCH" -r "${DEBIAN_RELEASE}" &&
   sudo chown $USER:$USER $SYSROOT
 
