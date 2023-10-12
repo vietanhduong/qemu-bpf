@@ -170,7 +170,10 @@ install_bcc() {
 install_go() {
   echo "Installing Golang..."
   root_dir="$1"
-  curl -sSLo go.tar.gz https://go.dev/dl/go1.21.3.linux-amd64.tar.gz &&
+
+  GO_VERSION=${GO_VERSION:-1.21.3}
+
+  curl -sSLo go.tar.gz https://go.dev/dl/go${GO_VERSION}.linux-${ARCH}.tar.gz &&
     tar -xf go.tar.gz -C $(realpath $root_dir)/usr && rm -f go.tar.gz
 }
 

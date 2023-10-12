@@ -1,4 +1,6 @@
-FROM ghcr.io/vietanhduong/bcc:ec49363 as bcc
+ARG BCC_VERSION=ec49363e2e9daec026ee6cae4c5fc316f8fab0ff
+
+FROM ghcr.io/vietanhduong/bcc:${BCC_VERSION} as bcc
 
 FROM debian:bookworm-20230919 
 

@@ -1,6 +1,20 @@
 name: Release
 
-on: push
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  BCC_VERSION: ec49363e2e9daec026ee6cae4c5fc316f8fab0ff
+  GO_VERSION: 1.21.3
+  INSTALL_GO: "true"
+  INSTALL_BCC: "true"
+  DEBIAN_RELEASE: bookworm
 
 jobs:
   prepare:
@@ -9,9 +23,17 @@ jobs:
     outputs:
       kernel_versions: ${{ steps.kernel_versions.outputs.value }}
       target_arches: ${{ steps.target_arches.outputs.value }}
+      version_tag: ${{ steps.version_tag.outputs.value }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Format version tag
+        shell: bash
+        id: version_tag
+        run: |
+          TAG=${GITHUB_REF#refs/*/}
+          echo "value=$TAG" >> $GITHUB_OUTPUT
 
       - name: Target Kernel Versions
         id: kernel_versions
@@ -42,20 +64,19 @@ jobs:
 
       - name: Build Sysroot Arch ${{ matrix.arch }}
         env:
-          INSTALL_GO: "true"
-          INSTALL_BCC: "true"
           DOCKER_BASE_IMAGE: sysroot
           ARCH: ${{ matrix.arch }}
-          DEBIAN_RELEASE: bookworm
         run: |
           BUILDS_DIR=$PWD/.builds
           mkdir -p $BUILDS_DIR
 
-          docker build . -t $DOCKER_BASE_IMAGE && \
-            docker run --rm -v $BUILDS_DIR:/builds -v ./build-sysroot.sh:/scripts/build-sysroot.sh \
-              -e INSTALL_GO=${INSTALL_GO} \
-              -e INSTALL_BCC=${INSTALL_BCC} \
-              $DOCKER_BASE_IMAGE -a "$ARCH" -r "${DEBIAN_RELEASE}"
+          docker build . -t $DOCKER_BASE_IMAGE \
+            --build-arg BCC_VERSION="${BCC_VERSION}" \
+            && docker run --rm -v $BUILDS_DIR:/builds -v ./build-sysroot.sh:/scripts/build-sysroot.sh \
+                -e INSTALL_GO=${INSTALL_GO} \
+                -e INSTALL_BCC=${INSTALL_BCC} \
+                -e GO_VERSION="${GO_VERSION}" \
+                $DOCKER_BASE_IMAGE -a "$ARCH" -r "${DEBIAN_RELEASE}"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v3
@@ -102,7 +123,9 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-20.04
-    needs: [build-disk]
+    needs:
+      - prepare
+      - build-disk
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -112,5 +135,32 @@ jobs:
         with:
           path: ${{ github.workspace }}
 
-      - name: Test
-        run: ls -lah "${{ github.workspace }}/artifact"
+      - name: Build Release Body
+        shell: bash
+        run: |
+          KERNEL_VERSIONS=($(curl -sSL https://raw.githubusercontent.com/vietanhduong/kernel-builder/master/KERNEL_VERSIONS))
+          # KERNEL SECTION
+          md="## Support Kernel Version\n"
+          for version in "${KERNEL_VERSIONS[@]}"; do
+            md+="* $version\n"
+          done
+          # DEBIAN SECTION
+          md+="## Debian\n"
+          md+="### Release: \`${DEBIAN_RELEASE}\`\n"
+          # BCC SECTION
+          if [[ $INSTALL_BCC = true ]]; then
+            md+="## BCC\n"
+            md+="### Commit: \`${BCC_VERSION}\`\n"
+          fi
+          # GO SECTION
+          if [[ $INSTALL_GO = true ]]; then
+            md+="## Go\n"
+            md+="### Version: \`${GO_VERSION}\`\n"
+          fi
+          echo -ne "$md" > ${{ github.workspace }}/body.md
+
+      - uses: ncipollo/release-action@v1
+        with:
+          artifacts: "${{ github.workspace }}/artifact/*.qcow2"
+          bodyFile: ${{ github.workspace }}/body.md
+          tag: ${{ needs.prepare.outputs.version_tag }}
