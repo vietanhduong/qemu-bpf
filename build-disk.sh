@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# KERNEL_VERSIONS=($(curl -sSL https://raw.githubusercontent.com/vietanhduong/kernel-builder/master/KERNEL_VERSIONS))
-
 function required {
   if [[ -z "${!1}" ]]; then
     echo "The environment variable $1 is needs to be set" >&2
@@ -10,7 +8,12 @@ function required {
 }
 
 required KERNEL_VERSION
-required DOCKER_BASE_IMAGE
+required SYSROOT
+
+if [[ ! -f "${SYSROOT}" ]]; then
+  echo "${SYSROOT}: file not found" >&2
+  exit 1
+fi
 
 ARCH=${ARCH:-amd64}
 DEBIAN_RELEASE=${DEBIAN_RELEASE:-bookworm}
@@ -18,16 +21,12 @@ DEBIAN_RELEASE=${DEBIAN_RELEASE:-bookworm}
 REPO_ROOT=$(git rev-parse --show-toplevel)
 BUILDS_DIR="${REPO_ROOT}/.builds"
 OUTPUT_NAME="qemu-${KERNEL_VERSION}"
-SYSROOT="${BUILDS_DIR}/sysroot-$ARCH.tar.gz"
 OUTPUT_DISK="${BUILDS_DIR}/${OUTPUT_NAME}.qcow2"
 KERNEL_PACKAGE="${BUILDS_DIR}/linux-build.tar.gz"
 BUSYBOX="${BUILDS_DIR}/busybox"
 
-INSTALL_GO=${INSTALL_GO:-true}
-INSTALL_BCC=${INSTALL_BCC:-true}
-
 FS_TYPE=ext4
-DISK_SIZE="4096M"
+DISK_SIZE=${DISK_SIZE:-"4096M"}
 
 # Download the kernel package from kernel-builder repo
 curl -s https://api.github.com/repos/vietanhduong/kernel-builder/releases/latest |
@@ -39,15 +38,6 @@ curl -s https://api.github.com/repos/vietanhduong/kernel-builder/releases/latest
 
 # Download busybox
 curl -sSLo $BUSYBOX https://busybox.net/downloads/binaries/1.35.0-x86_64-linux-musl/busybox
-
-mkdir -p $BUILDS_DIR &&
-  sudo rm -f "${SYSROOT}"
-
-docker run --rm -v $BUILDS_DIR:/builds -v ./build-sysroot.sh:/scripts/build-sysroot.sh \
-  -e INSTALL_GO=${INSTALL_GO} \
-  -e INSTALL_BCC=${INSTALL_BCC} \
-  $DOCKER_BASE_IMAGE -a "$ARCH" -r "${DEBIAN_RELEASE}" &&
-  sudo chown $USER:$USER $SYSROOT
 
 build_dir=$(mktemp -d)
 echo "tmp: $build_dir" # for debug

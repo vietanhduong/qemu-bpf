@@ -1,0 +1,110 @@
+name: Release
+
+on: push
+
+jobs:
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    outputs:
+      kernel_versions: steps.kernel_versions.outputs.kernel_versions
+      arches: steps.arches.outputs.arches
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Target Kernel Versions
+        id: kernel_versions
+        shell: bash
+        run: |
+          KERNEL_VERSIONS=($(curl -sSL https://raw.githubusercontent.com/vietanhduong/kernel-builder/master/KERNEL_VERSIONS))
+          echo "kernel_versions=$(printf '%s\n' "${KERNEL_VERSIONS[@]}" | jq -R . | jq -sc .)" >> $GITHUB_OUTPUT
+
+      - name: Target Arches
+        id: arches
+        shell: bash
+        run: echo 'arches=["amd64"]' >> $GITHUB_OUTPUT
+
+  build-sysroot:
+    needs: [prepare]
+    name: Build Sysroot
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: ${{ fromJson(needs.prepare.outputs.arches) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Sysroot Arch ${{ matrix.arch }}
+        env:
+          INSTALL_GO: "true"
+          INSTALL_BCC: "true"
+          DOCKER_BASE_IMAGE: sysroot
+          ARCH: ${{ matrix.arch }}
+          DEBIAN_RELEASE: bookworm
+        run: |
+          BUILDS_DIR=$PWD/.builds
+          mkdir -p $BUILDS_DIR
+
+          docker build . -t $DOCKER_BASE_IMAGE && \
+            docker run --rm -v $BUILDS_DIR:/builds -v ./build-sysroot.sh:/scripts/build-sysroot.sh \
+              -e INSTALL_GO=${INSTALL_GO} \
+              -e INSTALL_BCC=${INSTALL_BCC} \
+              $DOCKER_BASE_IMAGE -a "$ARCH" -r "${DEBIAN_RELEASE}"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          path: ${{ github.workspace }}/.builds/sysroot-${{matrix.arch}}.tar.gz
+
+  build-disk:
+    name: Build QEMU Disk
+    runs-on: ubuntu-latest
+    needs:
+      - prepare
+      - build-sysroot
+    strategy:
+      matrix:
+        arch: ${{ fromJson(needs.prepare.outputs.arches) }}
+        kernel_version: ${{ fromJson(needs.prepare.outputs.kernel_versions) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Artifact
+        uses: actions/download-artifact@v3
+        with:
+          path: ${{ github.workspace }}
+
+      - name: Build disk with Kernel Version ${{ matrix.kernel_version }}
+        shell: bash
+        env:
+          KERNEL_VERSION: ${{ matrix.kernel_version }}
+          SYSROOT: "${{ github.workspace }}/artifacts/sysroot-${{matrix.arch}}.tar.gz"
+          DISK_SIZE: "4096M"
+        run: ./build-disk.sh
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          path: ${{ github.workspace }}/.builds/qemu-${{matrix.kernel_version}}.qcow2
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [build-disk]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Artifact
+        uses: actions/download-artifact@v3
+        with:
+          path: ${{ github.workspace }}
+
+      - name: Test
+        run: ls -lah "${{ github.workspace }}/artifacts"
