@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 function required {
   if [[ -z "${!1}" ]]; then
     echo "The environment variable $1 is needs to be set" >&2
@@ -24,6 +26,8 @@ OUTPUT_NAME="qemu-${KERNEL_VERSION}"
 OUTPUT_DISK="${BUILDS_DIR}/${OUTPUT_NAME}.qcow2"
 KERNEL_PACKAGE="${BUILDS_DIR}/linux-build.tar.gz"
 BUSYBOX="${BUILDS_DIR}/busybox"
+
+mkdir -p $BUILDS_DIR
 
 FS_TYPE=ext4
 DISK_SIZE=${DISK_SIZE:-"4096M"}
@@ -85,5 +89,4 @@ qemu-img convert \
   -f raw -O qcow2 \
   "${tmpdisk_image}" "${OUTPUT_DISK}"
 
-rm -f "${tmpdisk_image}"
-rm -rf "${build_dir}"
+rm -rf "${tmpdisk_image}" "${build_dir}"
